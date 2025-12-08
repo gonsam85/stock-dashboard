@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # ---------------------------------------------------------
 # 페이지 기본 설정 (제목 이모지 🚀)
 # ---------------------------------------------------------
-st.set_page_config(page_title="미국 주식 대시보드 V45", layout="wide")
+st.set_page_config(page_title="미국 주식 대시보드 V46", layout="wide")
 
 # =========================================================
 # [PWA 설정] 스마트폰에서 앱처럼 보이게 하는 코드 📱
@@ -27,11 +27,8 @@ def inject_pwa_meta():
     <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/2503/2503939.png">
     
     <style>
-        /* 상단 헤더 숨기기 (선택사항: 앱처럼 더 깔끔하게) */
         header {visibility: hidden;}
-        /* 하단 푸터 숨기기 */
         footer {visibility: hidden;}
-        /* 전체 화면 꽉 채우기 */
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 5rem;
@@ -40,7 +37,6 @@ def inject_pwa_meta():
     """
     st.markdown(pwa_html, unsafe_allow_html=True)
 
-# PWA 코드 실행
 inject_pwa_meta()
 
 # [핵심] 자동 새로고침 스크립트 (600초 = 10분마다 새로고침)
@@ -76,7 +72,6 @@ if 'core_tickers' not in st.session_state:
 if 'watch_tickers' not in st.session_state:
     st.session_state['watch_tickers'] = "PLTR, SOXL, TQQQ, AMD"
 
-# [수정 1] 시뮬레이션 티커 초기값 설정 추가 (오류 해결 핵심)
 if 'sim_ticker_main' not in st.session_state:
     st.session_state['sim_ticker_main'] = "NVDA"
 
@@ -218,14 +213,7 @@ if 'data_loaded' not in st.session_state:
     load_data()
     st.session_state['data_loaded'] = True
 
-# ---------------------------------------------------------
-# [사이드바] 저장 버튼
-# ---------------------------------------------------------
-with st.sidebar:
-    st.header("💾 데이터 관리")
-    st.info("입력 후 아래 버튼을 눌러주세요.")
-    if st.button("데이터 저장하기", type="primary", use_container_width=True):
-        save_data()
+# [삭제됨] 사이드바 저장 버튼 영역 제거
 
 # ---------------------------------------------------------
 # 메인 화면: 탭 구성
@@ -334,7 +322,9 @@ with tab1:
 with tab2:
     st.markdown("### 📊 관심 종목 이원화 분석")
     st.caption("보유 중인 '주력 종목'과 지켜보는 '와치리스트'를 나누어 관리하세요.")
-    st.info("💡 티커를 수정하고 사이드바의 [데이터 저장하기] 버튼을 눌러야 유지됩니다.")
+    
+    # [수정] 안내 메시지에 저장 버튼 위치 변경 알림
+    st.info("💡 티커를 수정하고 [가족 자산] 탭의 [데이터 저장하기] 버튼을 눌러야 유지됩니다.")
 
     col_input_main, col_input_watch = st.columns(2)
     with col_input_main:
@@ -422,7 +412,6 @@ with tab3:
 
     col_sim_input1, col_sim_input2 = st.columns([1, 2])
     with col_sim_input1:
-        # [수정 2] value="NVDA" 삭제 (오류 해결)
         ticker_input = st.text_input("시뮬레이션 할 티커", key="sim_ticker_main").upper()
     st.divider()
 
@@ -498,7 +487,7 @@ with tab3:
         else: st.success(f"✅ 모든 매수 후 남은 예수금: ${rem_cash:,.2f}")
 
 # =========================================================
-# 탭 4: 가족 자산 (부동산 포함)
+# 탭 4: 가족 자산 (부동산 포함) - [수정됨: 저장하기 버튼 추가]
 # =========================================================
 with tab4:
     total_container = st.container()
@@ -591,6 +580,10 @@ with tab4:
         c3.metric("순자산", f"{net_krw:,.0f}원", delta=f"{total_diff_family:,.0f}원 (전일대비)")
         st.markdown(f"<div style='background-color:#e6fffa; padding:15px; border-radius:10px; text-align:center;'><h1>{net_krw:,.0f}원</h1></div>", unsafe_allow_html=True)
         st.divider()
+        
+        # [신규 추가] 저장 버튼을 이곳으로 이동
+        if st.button("💾 데이터 저장하기", type="primary", use_container_width=True):
+            save_data()
 
 # =========================================================
 # 탭 5: 자녀 자산
