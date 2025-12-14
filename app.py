@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # ---------------------------------------------------------
 # 페이지 기본 설정 (제목 이모지 🚀)
 # ---------------------------------------------------------
-st.set_page_config(page_title="미국 주식 대시보드 V46", layout="wide")
+st.set_page_config(page_title="미국 주식 대시보드 V47.1", layout="wide")
 
 # =========================================================
 # [PWA 설정] 스마트폰에서 앱처럼 보이게 하는 코드 📱
@@ -186,9 +186,10 @@ def calculate_and_render_portfolio(user_key, default_name, usd_krw):
     return total_asset_usd
 
 # ---------------------------------------------------------
-# [핵심] 데이터 저장 및 불러오기 시스템
+# [핵심] 데이터 저장 및 불러오기 시스템 (히스토리 기능 개선)
 # ---------------------------------------------------------
 DATA_FILE = "stock_dashboard_data.json"
+HISTORY_FILE = "asset_history.csv"
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -200,20 +201,75 @@ def load_data():
         except Exception as e:
             st.error(f"데이터 로드 실패: {e}")
 
+# [수정된 함수] 자산 이력 기록 함수 (타입 에러 해결 및 호환성 강화)
+def log_asset_history(total_asset_krw, net_asset_krw):
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    # 새로 들어갈 데이터도 명확하게 float(실수)로 변환해서 DataFrame 생성
+    new_data = pd.DataFrame({
+        "Date": [today], 
+        "TotalAsset": [float(total_asset_krw)], 
+        "NetAsset": [float(net_asset_krw)]
+    })
+    
+    try:
+        if os.path.exists(HISTORY_FILE):
+            df = pd.read_csv(HISTORY_FILE)
+            
+            # -------------------------------------------------------
+            # [마이그레이션 & 타입 강제 변환]
+            # -------------------------------------------------------
+            # 1. 구버전 컬럼명(Asset)이 있으면 신버전(TotalAsset)으로 변경
+            if 'Asset' in df.columns:
+                df.rename(columns={'Asset': 'TotalAsset'}, inplace=True)
+            
+            # 2. TotalAsset 컬럼이 없으면 생성, 있으면 실수형(float)으로 변환 ★핵심 해결책★
+            if 'TotalAsset' not in df.columns:
+                df['TotalAsset'] = 0.0
+            else:
+                df['TotalAsset'] = df['TotalAsset'].astype(float)
+
+            # 3. NetAsset 컬럼이 없으면 TotalAsset 값으로 채움, 있으면 실수형(float)으로 변환 ★핵심 해결책★
+            if 'NetAsset' not in df.columns:
+                df['NetAsset'] = df['TotalAsset']
+            else:
+                df['NetAsset'] = df['NetAsset'].astype(float)
+            # -------------------------------------------------------
+
+            if today in df['Date'].values:
+                # 오늘 날짜 행 업데이트
+                idx = df[df['Date'] == today].index
+                # 이제 컬럼이 float 설정이 되어 있으므로 소수점을 넣어도 경고가 뜨지 않습니다.
+                df.loc[idx, 'TotalAsset'] = float(total_asset_krw)
+                df.loc[idx, 'NetAsset'] = float(net_asset_krw)
+            else:
+                df = pd.concat([df, new_data], ignore_index=True)
+        else:
+            df = new_data
+        
+        df.to_csv(HISTORY_FILE, index=False)
+    except Exception as e:
+        st.error(f"히스토리 저장 실패: {e}")
+
 def save_data():
     try:
         data_to_save = {k: v for k, v in st.session_state.items() if isinstance(v, (int, float, str, bool, dict, list))}
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=4)
-        st.toast("✅ 데이터가 성공적으로 저장되었습니다!", icon="💾")
+        
+        # [수정] 저장 시 총자산과 순자산을 함께 기록
+        current_total = st.session_state.get('total_family_asset', 0.0)
+        current_loan = st.session_state.get('total_loan_balance', 0.0)
+        current_net = current_total - current_loan
+        log_asset_history(current_total, current_net)
+        
+        st.toast("✅ 데이터 및 자산 추세가 저장되었습니다!", icon="💾")
     except Exception as e:
         st.error(f"데이터 저장 실패: {e}")
 
 if 'data_loaded' not in st.session_state:
     load_data()
     st.session_state['data_loaded'] = True
-
-# [삭제됨] 사이드바 저장 버튼 영역 제거
 
 # ---------------------------------------------------------
 # 메인 화면: 탭 구성
@@ -231,7 +287,7 @@ usd_krw, rate_diff = get_exchange_rate()
 if usd_krw == 0: usd_krw = 1400.0
 
 # =========================================================
-# 탭 1: 목표 달성 현황
+# 탭 1: 목표 달성 현황 (날짜축 고정 & 점 항상 표시 수정판)
 # =========================================================
 with tab1:
     st.header("🏆 FIRE족을 향한 여정")
@@ -266,6 +322,76 @@ with tab1:
     
     st.divider()
 
+    # [NEW] 자산 추세 그래프 영역 (수정 완료)
+    st.subheader("📈 내 자산 성장 추세")
+    if os.path.exists(HISTORY_FILE):
+        try:
+            # 1. 데이터 불러오기
+            df_hist = pd.read_csv(HISTORY_FILE)
+            
+            # 2. 날짜 컬럼을 강제로 '날짜 형식(datetime)'으로 변환 (★핵심 수정★)
+            df_hist['Date'] = pd.to_datetime(df_hist['Date'])
+
+            if not df_hist.empty:
+                # 3. 컬럼 이름 및 데이터 정리
+                if 'Asset' in df_hist.columns:
+                    df_hist.rename(columns={'Asset': 'TotalAsset'}, inplace=True)
+                
+                # 없는 컬럼 0으로 채우고 float로 변환
+                if 'TotalAsset' not in df_hist.columns: df_hist['TotalAsset'] = 0.0
+                if 'NetAsset' not in df_hist.columns: df_hist['NetAsset'] = df_hist['TotalAsset']
+
+                df_hist['TotalAsset'] = df_hist['TotalAsset'].astype(float)
+                df_hist['NetAsset'] = df_hist['NetAsset'].astype(float)
+
+                # 4. 차트용 데이터 변환 (Wide -> Long)
+                df_long = df_hist.melt('Date', value_vars=['TotalAsset', 'NetAsset'], var_name='Type', value_name='Value')
+                df_long['Type'] = df_long['Type'].replace({'TotalAsset': '총 자산', 'NetAsset': '순자산'})
+
+                # 5. 차트 그리기
+                # X축 설정을 'Date:T'(Temporal)로 명시하여 날짜로 인식시킴
+                base = alt.Chart(df_long).encode(
+                    x=alt.X('Date:T', title='날짜', axis=alt.Axis(format='%Y-%m-%d', tickCount='day')), 
+                    y=alt.Y('Value:Q', title='금액 (원)', axis=alt.Axis(format=",d")),
+                    color=alt.Color('Type:N', title='구분', scale={'domain': ['총 자산', '순자산'], 'range': ['#1f77b4', '#00bfa0']})
+                )
+
+                # 선 그리기
+                line = base.mark_line(interpolate='monotone', size=3)
+                
+                # 점 그리기 (항상 보이도록 opacity=1로 설정) (★핵심 수정★)
+                points = base.mark_circle(size=80, opacity=1).encode(
+                    tooltip=[
+                        alt.Tooltip('Date:T', title='날짜', format='%Y-%m-%d'),
+                        alt.Tooltip('Type:N', title='구분'),
+                        alt.Tooltip('Value:Q', title='금액', format=",.0f")
+                    ]
+                )
+
+                # 최종 차트 결합
+                chart = (line + points).properties(height=350).configure_axis(
+                    grid=True, # 격자 표시 (보기 편하게)
+                    labelFontSize=12,
+                    titleFontSize=14
+                ).configure_legend(
+                    titleFontSize=14,
+                    labelFontSize=12,
+                    orient='bottom'
+                ).interactive()
+
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("데이터 파일은 있지만 내용은 비어있습니다. 다시 저장해주세요.")
+        except Exception as e:
+            st.error(f"차트 로딩 오류: {e}")
+            # 에러가 계속되면 파일 삭제 권고
+            st.warning("오류가 지속되면 'asset_history.csv' 파일을 삭제 후 다시 저장해주세요.")
+    else:
+        st.info("💡 [가족 자산] 탭에서 '데이터 저장하기'를 누르면 그래프가 시작됩니다.")
+
+    st.divider()
+    
+    # ... (이하 파이 차트 코드는 기존과 동일) ...
     st.subheader("🎨 내 자산 포트폴리오")
     st.caption("자산 비중을 한눈에 확인하세요.")
     
@@ -581,7 +707,7 @@ with tab4:
         st.markdown(f"<div style='background-color:#e6fffa; padding:15px; border-radius:10px; text-align:center;'><h1>{net_krw:,.0f}원</h1></div>", unsafe_allow_html=True)
         st.divider()
         
-        # [신규 추가] 저장 버튼을 이곳으로 이동
+        # [핵심] 저장 버튼이 눌리면 JSON 데이터와 함께 히스토리 CSV도 업데이트됨
         if st.button("💾 데이터 저장하기", type="primary", use_container_width=True):
             save_data()
 
